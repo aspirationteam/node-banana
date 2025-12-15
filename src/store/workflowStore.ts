@@ -365,16 +365,11 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     nodes
       .filter((n) => n.type === "nanoBanana")
       .forEach((node) => {
-        const imageConnected = edges.some(
-          (e) => e.target === node.id && e.targetHandle === "image"
-        );
         const textConnected = edges.some(
           (e) => e.target === node.id && e.targetHandle === "text"
         );
 
-        if (!imageConnected) {
-          errors.push(`Generate node "${node.id}" missing image input`);
-        }
+        // Only text input is required, image is optional
         if (!textConnected) {
           errors.push(`Generate node "${node.id}" missing text input`);
         }
@@ -497,10 +492,11 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           case "nanoBanana": {
             const { images, text } = getConnectedInputs(node.id);
 
-            if (images.length === 0 || !text) {
+            // Only text is required, images are optional
+            if (!text) {
               updateNodeData(node.id, {
                 status: "error",
-                error: "Missing image or text input",
+                error: "Missing text input",
               });
               set({ isRunning: false, currentNodeId: null });
               return;
@@ -717,10 +713,11 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         let images = inputs.images.length > 0 ? inputs.images : nodeData.inputImages;
         let text = inputs.text ?? nodeData.inputPrompt;
 
-        if (!images || images.length === 0 || !text) {
+        // Only text is required, images are optional
+        if (!text) {
           updateNodeData(nodeId, {
             status: "error",
-            error: "Missing image or text input",
+            error: "Missing text input",
           });
           set({ isRunning: false, currentNodeId: null });
           return;

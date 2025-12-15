@@ -42,20 +42,21 @@ export async function POST(request: NextRequest) {
     console.log(`[API:${requestId}]   - Resolution: ${resolution || 'default'}`);
     console.log(`[API:${requestId}]   - Google Search: ${useGoogleSearch || false}`);
 
-    if (!images || images.length === 0 || !prompt) {
-      console.error(`[API:${requestId}] ❌ Validation failed: missing images or prompt`);
+    // Only prompt is required, images are optional
+    if (!prompt) {
+      console.error(`[API:${requestId}] ❌ Validation failed: missing prompt`);
       return NextResponse.json<GenerateResponse>(
         {
           success: false,
-          error: "At least one image and prompt are required",
+          error: "Prompt is required",
         },
         { status: 400 }
       );
     }
 
     console.log(`[API:${requestId}] Extracting image data...`);
-    // Extract base64 data and MIME types from data URLs
-    const imageData = images.map((image, idx) => {
+    // Extract base64 data and MIME types from data URLs (if images provided)
+    const imageData = images && images.length > 0 ? images.map((image, idx) => {
       if (image.includes("base64,")) {
         const [header, data] = image.split("base64,");
         // Extract MIME type from header (e.g., "data:image/png;" -> "image/png")
@@ -66,13 +67,17 @@ export async function POST(request: NextRequest) {
       }
       console.log(`[API:${requestId}]   Image ${idx + 1}: No base64 header, assuming PNG, ${(image.length / 1024).toFixed(2)}KB`);
       return { data: image, mimeType: "image/png" };
-    });
+    }) : [];
+
+    if (imageData.length === 0) {
+      console.log(`[API:${requestId}]   No images provided - text-to-image generation`);
+    }
 
     // Initialize Gemini client
     console.log(`[API:${requestId}] Initializing Gemini client...`);
     const ai = new GoogleGenAI({ apiKey });
 
-    // Build request parts array with prompt and all images
+    // Build request parts array with prompt and all images (if any)
     console.log(`[API:${requestId}] Building request parts...`);
     const requestParts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [
       { text: prompt },
@@ -84,6 +89,7 @@ export async function POST(request: NextRequest) {
       })),
     ];
     console.log(`[API:${requestId}] Request parts count: ${requestParts.length} (1 text + ${imageData.length} images)`);
+
 
     // Build config object based on model capabilities
     console.log(`[API:${requestId}] Building generation config...`);

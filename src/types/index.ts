@@ -171,7 +171,7 @@ export type HandleType = "image" | "text";
 
 // API Request/Response types for Image Generation
 export interface GenerateRequest {
-  images: string[]; // Now supports multiple images
+  images?: string[]; // Optional: supports multiple images for image-to-image generation
   prompt: string;
   aspectRatio?: AspectRatio;
   resolution?: Resolution; // Only for Nano Banana Pro
