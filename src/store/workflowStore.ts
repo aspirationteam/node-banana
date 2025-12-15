@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import {
   Connection,
   EdgeChange,
@@ -139,7 +140,9 @@ const createDefaultNodeData = (type: NodeType): WorkflowNodeData => {
 
 let nodeIdCounter = 0;
 
-export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
+export const useWorkflowStore = create<WorkflowStore>()(
+  persist(
+    (set, get) => ({
   nodes: [],
   edges: [],
   edgeStyle: "curved" as EdgeStyle,
@@ -915,4 +918,15 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   clearGlobalHistory: () => {
     set({ globalImageHistory: [] });
   },
-}));
+}),
+    {
+      name: "node-banana-workflow",
+      partialize: (state) => ({
+        nodes: state.nodes,
+        edges: state.edges,
+        edgeStyle: state.edgeStyle,
+        globalImageHistory: state.globalImageHistory,
+      }),
+    }
+  )
+);

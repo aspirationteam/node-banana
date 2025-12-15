@@ -138,6 +138,12 @@ export function FloatingActionBar() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [runMenuOpen, setRunMenuOpen] = useState(false);
   const runMenuRef = useRef<HTMLDivElement>(null);
+  const [isClient, setIsClient] = useState(false);
+
+  // Mark client-side mount to avoid hydration mismatch
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   const { valid, errors } = validateWorkflow();
 
@@ -282,12 +288,12 @@ export function FloatingActionBar() {
         <div className="relative flex items-center" ref={runMenuRef}>
           <button
             onClick={handleRunClick}
-            disabled={!valid && !isRunning}
-            title={!valid ? errors.join("\n") : isRunning ? "Stop" : "Run"}
+            disabled={(!valid && !isRunning) || !isClient}
+            title={!isClient ? "Loading..." : !valid ? errors.join("\n") : isRunning ? "Stop" : "Run"}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium transition-colors ${
               isRunning
                 ? "bg-white text-neutral-900 hover:bg-neutral-200 rounded"
-                : valid
+                : valid && isClient
                 ? "bg-white text-neutral-900 hover:bg-neutral-200 rounded-l"
                 : "bg-neutral-700 text-neutral-500 cursor-not-allowed rounded"
             }`}
@@ -330,7 +336,7 @@ export function FloatingActionBar() {
           </button>
 
           {/* Dropdown chevron button */}
-          {!isRunning && valid && (
+          {!isRunning && valid && isClient && (
             <button
               onClick={() => setRunMenuOpen(!runMenuOpen)}
               className="flex items-center self-stretch px-1.5 rounded-r bg-white text-neutral-900 hover:bg-neutral-200 border-l border-neutral-200 transition-colors"
@@ -349,7 +355,7 @@ export function FloatingActionBar() {
           )}
 
           {/* Dropdown menu */}
-          {runMenuOpen && !isRunning && (
+          {runMenuOpen && !isRunning && isClient && (
             <div className="absolute bottom-full right-0 mb-2 bg-neutral-800 border border-neutral-700 rounded-lg shadow-xl overflow-hidden min-w-[180px]">
               <button
                 onClick={() => {
