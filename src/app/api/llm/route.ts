@@ -15,6 +15,41 @@ const OPENAI_MODEL_MAP: Record<string, string> = {
   "gpt-4.1-nano": "gpt-4.1-nano",
 };
 
+const extractGoogleText = (response: any): { text: string; meta?: string } => {
+  const candidates = response?.response?.candidates ?? response?.candidates ?? [];
+
+  for (const candidate of candidates) {
+    const parts = candidate?.content?.parts ?? [];
+    if (!Array.isArray(parts)) continue;
+
+    const combined = parts
+      .map((part: any) => (typeof part?.text === "string" ? part.text : ""))
+      .join("")
+      .trim();
+
+    if (combined) {
+      return { text: combined };
+    }
+  }
+
+  const directText = typeof response?.text === "string" ? response.text.trim() : "";
+  if (directText) {
+    return { text: directText };
+  }
+
+  const finishReason = candidates?.[0]?.finishReason;
+  const blockReason = response?.response?.promptFeedback?.blockReason;
+  const metaParts = [
+    finishReason ? `finish reason: ${finishReason}` : null,
+    blockReason ? `prompt blocked: ${blockReason}` : null,
+  ].filter(Boolean);
+
+  return {
+    text: "",
+    meta: metaParts.length ? metaParts.join("; ") : undefined,
+  };
+};
+
 async function generateWithGoogle(
   prompt: string,
   model: LLMModelType,
@@ -31,17 +66,28 @@ async function generateWithGoogle(
 
   const response = await ai.models.generateContent({
     model: modelId,
-    contents: prompt,
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: prompt }],
+      },
+    ],
     config: {
       temperature,
       maxOutputTokens: maxTokens,
     },
   });
 
-  // Use the convenient .text property that concatenates all text parts
-  const text = response.text;
+  const { text, meta } = extractGoogleText(response);
   if (!text) {
-    throw new Error("No text in Google AI response");
+    if (process.env.NODE_ENV !== "production") {
+      try {
+        console.warn("Google AI empty response:", JSON.stringify(response, null, 2));
+      } catch {
+        console.warn("Google AI empty response (unserializable):", response);
+      }
+    }
+    throw new Error(meta ? `No text in Google AI response (${meta})` : "No text in Google AI response");
   }
 
   return text;

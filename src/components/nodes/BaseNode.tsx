@@ -1,6 +1,7 @@
 "use client";
 
 import { ReactNode, useCallback } from "react";
+import type { KeyboardEvent } from "react";
 import { NodeResizer, OnResize, useReactFlow } from "@xyflow/react";
 import { useWorkflowStore } from "@/store/workflowStore";
 
@@ -28,6 +29,8 @@ export function BaseNode({
   minHeight = 100,
 }: BaseNodeProps) {
   const currentNodeId = useWorkflowStore((state) => state.currentNodeId);
+  const isRunning = useWorkflowStore((state) => state.isRunning);
+  const executeWorkflow = useWorkflowStore((state) => state.executeWorkflow);
   const isCurrentlyExecuting = currentNodeId === id;
   const { getNodes, setNodes } = useReactFlow();
 
@@ -59,6 +62,18 @@ export function BaseNode({
     [id, getNodes, setNodes]
   );
 
+  const handleKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.key !== "Enter" || event.target !== event.currentTarget || !selected || isRunning) {
+        return;
+      }
+
+      event.preventDefault();
+      executeWorkflow(id);
+    },
+    [selected, isRunning, executeWorkflow, id]
+  );
+
   return (
     <>
       <NodeResizer
@@ -74,9 +89,11 @@ export function BaseNode({
           bg-neutral-800 rounded-md shadow-lg border h-full w-full
           ${isCurrentlyExecuting || isExecuting ? "border-blue-500 ring-1 ring-blue-500/20" : "border-neutral-700"}
           ${hasError ? "border-red-500" : ""}
-          ${selected ? "border-neutral-400 ring-1 ring-neutral-400/30" : ""}
+          ${selected ? "border-amber-400 ring-1 ring-amber-300/40" : ""}
           ${className}
         `}
+        tabIndex={0}
+        onKeyDown={handleKeyDown}
       >
         <div className="px-3 pt-2 pb-1">
           <span className="text-xs font-semibold uppercase tracking-wide text-neutral-400">{title}</span>
