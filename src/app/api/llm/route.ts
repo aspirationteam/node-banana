@@ -15,8 +15,18 @@ const OPENAI_MODEL_MAP: Record<string, string> = {
   "gpt-4.1-nano": "gpt-4.1-nano",
 };
 
-const extractGoogleText = (response: any): { text: string; meta?: string } => {
-  const candidates = response?.response?.candidates ?? response?.candidates ?? [];
+const GOOGLE_MAX_OUTPUT_TOKENS = 8192;
+
+interface ExtractedGoogleResult {
+  text: string;
+  meta?: string;
+  finishReason?: string;
+  blockReason?: string;
+}
+
+const extractGoogleText = (response: any): ExtractedGoogleResult => {
+  const rootResponse = response?.response ?? response;
+  const candidates = rootResponse?.candidates ?? [];
 
   for (const candidate of candidates) {
     const parts = candidate?.content?.parts ?? [];
@@ -38,7 +48,7 @@ const extractGoogleText = (response: any): { text: string; meta?: string } => {
   }
 
   const finishReason = candidates?.[0]?.finishReason;
-  const blockReason = response?.response?.promptFeedback?.blockReason;
+  const blockReason = rootResponse?.promptFeedback?.blockReason;
   const metaParts = [
     finishReason ? `finish reason: ${finishReason}` : null,
     blockReason ? `prompt blocked: ${blockReason}` : null,
@@ -46,6 +56,8 @@ const extractGoogleText = (response: any): { text: string; meta?: string } => {
 
   return {
     text: "",
+    finishReason: finishReason || undefined,
+    blockReason: blockReason || undefined,
     meta: metaParts.length ? metaParts.join("; ") : undefined,
   };
 };
@@ -63,23 +75,33 @@ async function generateWithGoogle(
 
   const ai = new GoogleGenAI({ apiKey });
   const modelId = GOOGLE_MODEL_MAP[model];
+  let targetTokens = Math.min(maxTokens, GOOGLE_MAX_OUTPUT_TOKENS);
 
-  const response = await ai.models.generateContent({
-    model: modelId,
-    contents: [
-      {
-        role: "user",
-        parts: [{ text: prompt }],
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await ai.models.generateContent({
+      model: modelId,
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: prompt }],
+        },
+      ],
+      config: {
+        temperature,
+        maxOutputTokens: targetTokens,
       },
-    ],
-    config: {
-      temperature,
-      maxOutputTokens: maxTokens,
-    },
-  });
+    });
 
-  const { text, meta } = extractGoogleText(response);
-  if (!text) {
+    const { text, meta, finishReason, blockReason } = extractGoogleText(response);
+    if (text) {
+      return text;
+    }
+
+    if (finishReason === "MAX_TOKENS" && targetTokens < GOOGLE_MAX_OUTPUT_TOKENS) {
+      targetTokens = Math.min(GOOGLE_MAX_OUTPUT_TOKENS, targetTokens * 2);
+      continue;
+    }
+
     if (process.env.NODE_ENV !== "production") {
       try {
         console.warn("Google AI empty response:", JSON.stringify(response, null, 2));
@@ -87,10 +109,15 @@ async function generateWithGoogle(
         console.warn("Google AI empty response (unserializable):", response);
       }
     }
+
+    if (blockReason) {
+      throw new Error(`Google AI blocked the request (${blockReason})`);
+    }
+
     throw new Error(meta ? `No text in Google AI response (${meta})` : "No text in Google AI response");
   }
 
-  return text;
+  throw new Error("No text in Google AI response (exhausted retries)");
 }
 
 async function generateWithOpenAI(

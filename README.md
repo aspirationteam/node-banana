@@ -4,6 +4,34 @@
 
 Node Banana is node-based workflow application for generating images with NBP. Build image generation pipelines by connecting nodes on a visual canvas. Built mainly with Opus 4.5.
 
+## 项目说明（中文）
+
+Node Banana 是一款节点式工作流工具，通过在画布上拖拽并连接节点，就能快速搭建图像/文本生成流程，适合需要复用、组合 AI 能力的创作者。
+
+### 主要功能
+
+- **可视化流程编辑**：无限画布、拖拽节点、平移缩放皆可。
+- **图像标注&拆分**：内置矩形、箭头、手绘等标注工具，可用于描述或拆分素材。
+- **AI 生成能力**：调用 Google Gemini 生成图像，也能用 Gemini 或 OpenAI 生成文本。
+- **工作流串联**：同类输入输出自动匹配，可自由搭建复杂链路。
+- **保存/恢复**：工作流支持导出 JSON，亦可再次导入继续编辑。
+
+### 技术栈
+
+- Next.js 16（App Router） + TypeScript
+- React Flow（@xyflow/react）负责节点画布
+- Konva.js / react-konva 实现标注
+- Zustand 状态管理，Tailwind CSS 负责样式
+- Google Gemini / OpenAI API 提供 AI 推理
+
+### 快速上手
+
+1. 安装依赖：`npm install`
+2. 配置 `.env.local`，至少填入 `GEMINI_API_KEY`，如需 OpenAI 再补 `OPENAI_API_KEY`
+3. 启动开发环境：`npm run dev`，浏览器访问 `http://localhost:3000`
+4. 在浮动面板添加节点、拖线连接、配置参数，完成后点击 Run 即可运行
+5. 想要复用工作流，可在页面右上角导出并保存 JSON
+
 ## Features
 
 - **Visual Node Editor** - Drag-and-drop nodes onto an infinite canvas with pan and zoom
