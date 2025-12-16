@@ -1,6 +1,12 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
+  saveNodeImageData,
+  deleteNodeImageData,
+  loadAllNodeImageData,
+  clearAllNodeImageData,
+} from "@/utils/imageCache";
+import {
   Connection,
   EdgeChange,
   NodeChange,
@@ -90,6 +96,54 @@ interface WorkflowStore {
   clearGlobalHistory: () => void;
 }
 
+type WorkflowStoreSetter = (
+  partial:
+    | WorkflowStore
+    | Partial<WorkflowStore>
+    | ((state: WorkflowStore) => WorkflowStore | Partial<WorkflowStore>),
+  replace?: boolean
+) => void;
+
+let workflowStoreSetter: WorkflowStoreSetter | null = null;
+let workflowStoreGetter: (() => WorkflowStore) | null = null;
+
+const extractNodeImagePayload = (node: WorkflowNode): Partial<WorkflowNodeData> | null => {
+  switch (node.type) {
+    case "imageInput": {
+      const data = node.data as ImageInputNodeData;
+      if (!data.image) return null;
+      return {
+        image: data.image,
+        filename: data.filename,
+        dimensions: data.dimensions,
+      };
+    }
+    case "annotation": {
+      const data = node.data as AnnotationNodeData;
+      const payload: Partial<AnnotationNodeData> = {};
+      if (data.sourceImage) payload.sourceImage = data.sourceImage;
+      if (data.outputImage) payload.outputImage = data.outputImage;
+      return Object.keys(payload).length ? payload : null;
+    }
+    case "nanoBanana": {
+      const data = node.data as NanoBananaNodeData;
+      const payload: Partial<NanoBananaNodeData> = {};
+      if (data.inputImages.length > 0) payload.inputImages = data.inputImages;
+      if (data.outputImage) payload.outputImage = data.outputImage;
+      return Object.keys(payload).length ? payload : null;
+    }
+    case "output": {
+      const data = node.data as OutputNodeData;
+      if (!data.image) return null;
+      return { image: data.image };
+    }
+    default:
+      return null;
+  }
+};
+
+let restoreNodeImagesFromCache: (() => void) | null = null;
+
 const createDefaultNodeData = (type: NodeType): WorkflowNodeData => {
   switch (type) {
     case "imageInput":
@@ -113,7 +167,7 @@ const createDefaultNodeData = (type: NodeType): WorkflowNodeData => {
         inputImages: [],
         inputPrompt: null,
         outputImage: null,
-        aspectRatio: "1:1",
+        aspectRatio: "original",
         resolution: "1K",
         model: "nano-banana-pro",
         useGoogleSearch: false,
@@ -140,9 +194,77 @@ const createDefaultNodeData = (type: NodeType): WorkflowNodeData => {
 
 let nodeIdCounter = 0;
 
+const NODE_ID_SUFFIX_REGEX = /-(\d+)$/;
+
+const findMaxNodeSuffix = (nodes: WorkflowNode[]): number => {
+  return nodes.reduce((max, node) => {
+    const match = node.id.match(NODE_ID_SUFFIX_REGEX);
+    if (!match) return max;
+    const value = parseInt(match[1], 10);
+    if (Number.isNaN(value)) return max;
+    return Math.max(max, value);
+  }, 0);
+};
+
+const syncNodeIdCounter = (nodes: WorkflowNode[]) => {
+  nodeIdCounter = Math.max(nodeIdCounter, findMaxNodeSuffix(nodes));
+};
+
+const generateUniqueNodeId = (type: NodeType, nodes: WorkflowNode[]): string => {
+  const maxSuffix = findMaxNodeSuffix(nodes);
+  const startingSuffix = Math.max(nodeIdCounter + 1, maxSuffix + 1, 1);
+  nodeIdCounter = startingSuffix;
+  return `${type}-${startingSuffix}`;
+};
+
+const deduplicateWorkflowNodes = (nodes: WorkflowNode[]) => {
+  const seen = new Set<string>();
+  const deduped: WorkflowNode[] = [];
+  const removedIds: string[] = [];
+
+  nodes.forEach((node) => {
+    if (seen.has(node.id)) {
+      removedIds.push(node.id);
+      return;
+    }
+    seen.add(node.id);
+    deduped.push(node);
+  });
+
+  return {
+    nodes: deduped,
+    removedIds: Array.from(new Set(removedIds)),
+  };
+};
+
 export const useWorkflowStore = create<WorkflowStore>()(
   persist(
-    (set, get) => ({
+    (set, get) => {
+      workflowStoreSetter = set;
+      workflowStoreGetter = get;
+      restoreNodeImagesFromCache = () => {
+        if (typeof window === "undefined") return;
+        const nodes = get().nodes;
+        if (!nodes.length) return;
+
+        loadAllNodeImageData(nodes.map((n) => n.id)).then((dataMap) => {
+          if (!Object.keys(dataMap).length) return;
+          set((state) => ({
+            nodes: state.nodes.map((node) => {
+              const payload = dataMap[node.id];
+              if (!payload) return node;
+              return {
+                ...node,
+                data: { ...node.data, ...payload.data } as WorkflowNodeData,
+              };
+            }),
+          }));
+        }).catch((error) => {
+          console.error("[workflowStore] Failed to restore node images", error);
+        });
+      };
+
+      return {
   nodes: [],
   edges: [],
   edgeStyle: "curved" as EdgeStyle,
@@ -157,7 +279,8 @@ export const useWorkflowStore = create<WorkflowStore>()(
   },
 
   addNode: (type: NodeType, position: XYPosition) => {
-    const id = `${type}-${++nodeIdCounter}`;
+    const existingNodes = get().nodes;
+    const id = generateUniqueNodeId(type, existingNodes);
 
     // Default dimensions based on node type
     const defaultDimensions: Record<NodeType, { width: number; height: number }> = {
@@ -194,6 +317,17 @@ export const useWorkflowStore = create<WorkflowStore>()(
           : node
       ) as WorkflowNode[],
     }));
+    if (typeof window !== "undefined") {
+      const node = get().nodes.find((n) => n.id === nodeId);
+      if (node) {
+        const payload = extractNodeImagePayload(node);
+        if (payload) {
+          saveNodeImageData(nodeId, { type: node.type, data: payload });
+        } else {
+          deleteNodeImageData(nodeId);
+        }
+      }
+    }
   },
 
   removeNode: (nodeId: string) => {
@@ -203,6 +337,9 @@ export const useWorkflowStore = create<WorkflowStore>()(
         (edge) => edge.source !== nodeId && edge.target !== nodeId
       ),
     }));
+    if (typeof window !== "undefined") {
+      deleteNodeImageData(nodeId);
+    }
   },
 
   onNodesChange: (changes: NodeChange<WorkflowNode>[]) => {
@@ -515,11 +652,12 @@ export const useWorkflowStore = create<WorkflowStore>()(
             try {
               const nodeData = node.data as NanoBananaNodeData;
 
+              const shouldMatchOriginal = nodeData.aspectRatio === "original" && images.length > 0;
               const requestPayload = {
                 images,
                 prompt: text,
-                aspectRatio: nodeData.aspectRatio,
-                resolution: nodeData.resolution,
+                aspectRatio: shouldMatchOriginal ? undefined : nodeData.aspectRatio,
+                resolution: shouldMatchOriginal ? undefined : nodeData.resolution,
                 model: nodeData.model,
                 useGoogleSearch: nodeData.useGoogleSearch,
               };
@@ -731,14 +869,15 @@ export const useWorkflowStore = create<WorkflowStore>()(
           error: null,
         });
 
+        const shouldMatchOriginal = nodeData.aspectRatio === "original" && images.length > 0;
         const response = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             images,
             prompt: text,
-            aspectRatio: nodeData.aspectRatio,
-            resolution: nodeData.resolution,
+            aspectRatio: shouldMatchOriginal ? undefined : nodeData.aspectRatio,
+            resolution: shouldMatchOriginal ? undefined : nodeData.resolution,
             model: nodeData.model,
             useGoogleSearch: nodeData.useGoogleSearch,
           }),
@@ -876,23 +1015,33 @@ export const useWorkflowStore = create<WorkflowStore>()(
   },
 
   loadWorkflow: (workflow: WorkflowFile) => {
-    // Update nodeIdCounter to avoid ID collisions
-    const maxId = workflow.nodes.reduce((max, node) => {
-      const match = node.id.match(/-(\d+)$/);
-      if (match) {
-        return Math.max(max, parseInt(match[1], 10));
-      }
-      return max;
-    }, 0);
-    nodeIdCounter = maxId;
+    const { nodes: dedupedNodes, removedIds } = deduplicateWorkflowNodes(workflow.nodes);
+    if (removedIds.length) {
+      console.warn(
+        `[workflowStore] Removed duplicate node ids while loading workflow: ${removedIds.join(", ")}`
+      );
+    }
 
     set({
-      nodes: workflow.nodes,
+      nodes: dedupedNodes,
       edges: workflow.edges,
       edgeStyle: workflow.edgeStyle || "angular",
       isRunning: false,
       currentNodeId: null,
     });
+
+    syncNodeIdCounter(dedupedNodes);
+
+    if (typeof window !== "undefined") {
+      dedupedNodes.forEach((node) => {
+        const payload = extractNodeImagePayload(node);
+        if (payload) {
+          saveNodeImageData(node.id, { type: node.type, data: payload });
+        } else {
+          deleteNodeImageData(node.id);
+        }
+      });
+    }
   },
 
   clearWorkflow: () => {
@@ -902,6 +1051,9 @@ export const useWorkflowStore = create<WorkflowStore>()(
       isRunning: false,
       currentNodeId: null,
     });
+    if (typeof window !== "undefined") {
+      clearAllNodeImageData();
+    }
   },
 
   addToGlobalHistory: (item: Omit<ImageHistoryItem, "id">) => {
@@ -918,34 +1070,45 @@ export const useWorkflowStore = create<WorkflowStore>()(
   clearGlobalHistory: () => {
     set({ globalImageHistory: [] });
   },
-}),
+};
+    },
     {
       name: "node-banana-workflow",
       version: 1, // Increment to force migration/reset
       partialize: (state) => {
-        // Remove image data from nodes to save space
         const nodesWithoutImages = state.nodes.map((node) => {
-          const nodeCopy = { ...node };
-
-          // Remove image data based on node type
-          if (node.type === "imageInput") {
-            nodeCopy.data = { ...node.data, image: null, filename: null, dimensions: null };
-          } else if (node.type === "annotation") {
-            nodeCopy.data = { ...node.data, sourceImage: null, outputImage: null };
-          } else if (node.type === "nanoBanana") {
-            nodeCopy.data = { ...node.data, inputImages: [], outputImage: null };
-          } else if (node.type === "output") {
-            nodeCopy.data = { ...node.data, displayImage: null };
+          switch (node.type) {
+            case "imageInput": {
+              const data = node.data as ImageInputNodeData;
+              return { ...node, data: { ...data, image: null } as WorkflowNodeData };
+            }
+            case "annotation": {
+              const data = node.data as AnnotationNodeData;
+              return {
+                ...node,
+                data: { ...data, sourceImage: null, outputImage: null } as WorkflowNodeData,
+              };
+            }
+            case "nanoBanana": {
+              const data = node.data as NanoBananaNodeData;
+              return {
+                ...node,
+                data: { ...data, inputImages: [], outputImage: null } as WorkflowNodeData,
+              };
+            }
+            case "output": {
+              const data = node.data as OutputNodeData;
+              return { ...node, data: { ...data, image: null } as WorkflowNodeData };
+            }
+            default:
+              return node;
           }
-
-          return nodeCopy;
         });
 
         return {
           nodes: nodesWithoutImages,
           edges: state.edges,
           edgeStyle: state.edgeStyle,
-          // Don't persist image history to save space
         };
       },
       merge: (persistedState: any, currentState) => {
@@ -958,6 +1121,27 @@ export const useWorkflowStore = create<WorkflowStore>()(
           currentNodeId: null,
           pausedAtNodeId: null,
           clipboard: null,
+        };
+      },
+      onRehydrateStorage: () => {
+        return () => {
+          const currentState = workflowStoreGetter?.();
+          if (currentState) {
+            const { nodes: dedupedNodes, removedIds } = deduplicateWorkflowNodes(currentState.nodes);
+            if (removedIds.length && workflowStoreSetter) {
+              workflowStoreSetter((state) => ({
+                ...state,
+                nodes: dedupedNodes,
+              }));
+              console.warn(
+                `[workflowStore] Removed duplicate node ids on hydrate: ${removedIds.join(", ")}`
+              );
+            }
+
+            const latestNodes = workflowStoreGetter?.().nodes ?? dedupedNodes ?? [];
+            syncNodeIdCounter(latestNodes);
+          }
+          restoreNodeImagesFromCache?.();
         };
       },
     }

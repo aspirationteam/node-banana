@@ -77,6 +77,10 @@ The `/examples` directory contains some example workflow files from my personal 
 3. **Configure nodes** - Adjust settings like model, aspect ratio, or drawing tools
 4. **Run workflow** - Click the Run button to execute the pipeline
 5. **Save/Load** - Use the header menu to save or load workflows
+6. **Advanced interactions**
+   - Right-click drag to pan the canvas; left-click drag draws a marquee selection box.
+   - Resize any node directly via its corner handles—no need to pre-select first.
+   - Focus a node (click its body) and press `Enter` to immediately “Run from selected node”.
 
 ## Connection Rules
 

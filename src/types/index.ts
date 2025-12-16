@@ -11,6 +11,7 @@ export type NodeType =
 
 // Aspect Ratios (supported by both Nano Banana and Nano Banana Pro)
 export type AspectRatio = "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "4:5" | "5:4" | "9:16" | "16:9" | "21:9";
+export type AspectRatioOption = AspectRatio | "original";
 
 // Resolution Options (only supported by Nano Banana Pro)
 export type Resolution = "1K" | "2K" | "4K";
@@ -121,7 +122,7 @@ export interface NanoBananaNodeData extends BaseNodeData {
   inputImages: string[]; // Now supports multiple images
   inputPrompt: string | null;
   outputImage: string | null;
-  aspectRatio: AspectRatio;
+  aspectRatio: AspectRatioOption;
   resolution: Resolution; // Only used by Nano Banana Pro
   model: ModelType;
   useGoogleSearch: boolean; // Only available for Nano Banana Pro

@@ -4,10 +4,14 @@ import { useCallback } from "react";
 import { Handle, Position, NodeProps, Node } from "@xyflow/react";
 import { BaseNode } from "./BaseNode";
 import { useWorkflowStore } from "@/store/workflowStore";
-import { NanoBananaNodeData, AspectRatio, Resolution, ModelType } from "@/types";
+import { NanoBananaNodeData, AspectRatio, AspectRatioOption, Resolution, ModelType } from "@/types";
 
-// All 10 aspect ratios supported by both models
-const ASPECT_RATIOS: AspectRatio[] = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"];
+// All 10 aspect ratios supported by both models (excluding the dynamic "original" option)
+const FIXED_ASPECT_RATIOS: AspectRatio[] = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"];
+const ASPECT_RATIO_OPTIONS: { value: AspectRatioOption; label: string }[] = [
+  { value: "original", label: "Original (match input)" },
+  ...FIXED_ASPECT_RATIOS.map((ratio) => ({ value: ratio, label: ratio })),
+];
 
 // Resolutions only for Nano Banana Pro (gemini-3-pro-image-preview)
 const RESOLUTIONS: Resolution[] = ["1K", "2K", "4K"];
@@ -25,7 +29,7 @@ export function NanoBananaNode({ id, data, selected }: NodeProps<NanoBananaNodeT
 
   const handleAspectRatioChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
-      updateNodeData(id, { aspectRatio: e.target.value as AspectRatio });
+      updateNodeData(id, { aspectRatio: e.target.value as AspectRatioOption });
     },
     [id, updateNodeData]
   );
@@ -205,9 +209,9 @@ export function NanoBananaNode({ id, data, selected }: NodeProps<NanoBananaNodeT
             onChange={handleAspectRatioChange}
             className="flex-1 text-[10px] py-1 px-1.5 border border-neutral-700 rounded bg-neutral-900/50 focus:outline-none focus:ring-1 focus:ring-neutral-600 text-neutral-300"
           >
-            {ASPECT_RATIOS.map((ratio) => (
-              <option key={ratio} value={ratio}>
-                {ratio}
+            {ASPECT_RATIO_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </select>
@@ -215,7 +219,10 @@ export function NanoBananaNode({ id, data, selected }: NodeProps<NanoBananaNodeT
             <select
               value={nodeData.resolution}
               onChange={handleResolutionChange}
-              className="w-12 text-[10px] py-1 px-1.5 border border-neutral-700 rounded bg-neutral-900/50 focus:outline-none focus:ring-1 focus:ring-neutral-600 text-neutral-300"
+              disabled={nodeData.aspectRatio === "original"}
+              className={`w-12 text-[10px] py-1 px-1.5 border border-neutral-700 rounded bg-neutral-900/50 focus:outline-none focus:ring-1 focus:ring-neutral-600 text-neutral-300 ${
+                nodeData.aspectRatio === "original" ? "opacity-50 cursor-not-allowed" : ""
+              }`}
             >
               {RESOLUTIONS.map((res) => (
                 <option key={res} value={res}>
