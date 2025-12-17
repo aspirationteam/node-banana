@@ -34,12 +34,12 @@ import {
   OutputNode,
 } from "./nodes";
 import { EditableEdge } from "./edges";
-import { ConnectionDropMenu, MenuAction } from "./ConnectionDropMenu";
+import { ConnectionDropMenu, MenuAction, GridSelectorOverlay } from "./ConnectionDropMenu";
 import { MultiSelectToolbar } from "./MultiSelectToolbar";
 import { EdgeToolbar } from "./EdgeToolbar";
 import { GlobalImageHistory } from "./GlobalImageHistory";
 import { NodeType, NanoBananaNodeData } from "@/types";
-import { detectAndSplitGrid } from "@/utils/gridSplitter";
+import { detectAndSplitGrid, splitWithDimensions } from "@/utils/gridSplitter";
 
 const nodeTypes: NodeTypes = {
   imageInput: ImageInputNode,
@@ -111,6 +111,7 @@ function WorkflowCanvasInner() {
   const [dropType, setDropType] = useState<"image" | "workflow" | "node" | null>(null);
   const [connectionDrop, setConnectionDrop] = useState<ConnectionDropState | null>(null);
   const [isSplitting, setIsSplitting] = useState(false);
+  const [gridSelector, setGridSelector] = useState<{ position: { x: number; y: number }; sourceNodeId: string; flowPosition: { x: number; y: number } } | null>(null);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const handlePaneContextMenu = useCallback((event: ReactMouseEvent) => {
     event.preventDefault();
@@ -246,6 +247,92 @@ function WorkflowCanvasInner() {
     [screenToFlowPosition, nodes, getNodeHandles, handleConnect]
   );
 
+  // Handle grid size selection
+  const handleGridSelection = useCallback(
+    async (rows: number, cols: number, sourceNodeId: string, flowPosition: { x: number; y: number }) => {
+      const sourceNode = getNodeById(sourceNodeId);
+      if (!sourceNode) return;
+
+      // Get the output image from the source node
+      let sourceImage: string | null = null;
+      if (sourceNode.type === "nanoBanana") {
+        sourceImage = (sourceNode.data as NanoBananaNodeData).outputImage;
+      } else if (sourceNode.type === "imageInput") {
+        sourceImage = (sourceNode.data as { image: string | null }).image;
+      } else if (sourceNode.type === "annotation") {
+        sourceImage = (sourceNode.data as { outputImage: string | null }).outputImage;
+      }
+
+      if (!sourceImage) {
+        alert("No image available to split. Generate or load an image first.");
+        return;
+      }
+
+      const sourceNodeData = sourceNode.type === "nanoBanana" ? sourceNode.data as NanoBananaNodeData : null;
+      setIsSplitting(true);
+      setGridSelector(null);
+
+      try {
+        // Use user-specified dimensions instead of auto-detection
+        const { grid, images } = await splitWithDimensions(sourceImage, rows, cols);
+
+        if (images.length === 0) {
+          alert("Failed to split image with specified dimensions.");
+          setIsSplitting(false);
+          return;
+        }
+
+        // Calculate layout for the new nodes
+        const nodeWidth = 300;
+        const nodeHeight = 280;
+        const gap = 20;
+
+        // Add split images to global history
+        images.forEach((imageData: string, index: number) => {
+          const row = Math.floor(index / cols);
+          const col = index % cols;
+          addToGlobalHistory({
+            image: imageData,
+            timestamp: Date.now() + index,
+            prompt: `Split ${row + 1}-${col + 1} from ${rows}x${cols} grid`,
+            aspectRatio: sourceNodeData?.aspectRatio || "1:1",
+            model: sourceNodeData?.model || "nano-banana",
+          });
+        });
+
+        // Create ImageInput nodes arranged in a grid matching the layout
+        images.forEach((imageData: string, index: number) => {
+          const row = Math.floor(index / cols);
+          const col = index % cols;
+
+          const nodeId = addNode("imageInput", {
+            x: flowPosition.x + col * (nodeWidth + gap),
+            y: flowPosition.y + row * (nodeHeight + gap),
+          });
+
+          // Get dimensions from the split image
+          const img = new Image();
+          img.onload = () => {
+            updateNodeData(nodeId, {
+              image: imageData,
+              filename: `split-${row + 1}-${col + 1}.png`,
+              dimensions: { width: img.width, height: img.height },
+            });
+          };
+          img.src = imageData;
+        });
+
+        console.log(`[SplitGrid] Created ${images.length} nodes from ${rows}x${cols} grid`);
+      } catch (error) {
+        console.error("[SplitGrid] Error:", error);
+        alert("Failed to split image grid: " + (error instanceof Error ? error.message : "Unknown error"));
+      } finally {
+        setIsSplitting(false);
+      }
+    },
+    [getNodeById, addNode, updateNodeData, addToGlobalHistory]
+  );
+
   // Handle the splitGrid action - uses automated grid detection
   const handleSplitGridAction = useCallback(
     async (sourceNodeId: string, flowPosition: { x: number; y: number }) => {
@@ -357,7 +444,18 @@ function WorkflowCanvasInner() {
       // Handle actions differently from node creation
       if (selection.isAction) {
         if (selection.type === "splitGrid" && sourceNodeId) {
+          // Use auto-detection
           handleSplitGridAction(sourceNodeId, flowPosition);
+        } else if (selection.type === "splitGridCustom" && sourceNodeId) {
+          // Show grid selector overlay
+          setGridSelector({
+            position: {
+              x: connectionDrop.position.x,
+              y: connectionDrop.position.y
+            },
+            sourceNodeId,
+            flowPosition
+          });
         }
         setConnectionDrop(null);
         return;
@@ -836,6 +934,17 @@ function WorkflowCanvasInner() {
           connectionType={connectionDrop.connectionType}
           onSelect={handleMenuSelect}
           onClose={handleCloseDropMenu}
+        />
+      )}
+
+      {/* Grid selector overlay */}
+      {gridSelector && (
+        <GridSelectorOverlay
+          position={gridSelector.position}
+          sourceNodeId={gridSelector.sourceNodeId}
+          flowPosition={gridSelector.flowPosition}
+          onConfirm={(rows, cols) => handleGridSelection(rows, cols, gridSelector.sourceNodeId, gridSelector.flowPosition)}
+          onClose={() => setGridSelector(null)}
         />
       )}
 
