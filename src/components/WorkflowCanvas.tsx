@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   useEffect,
+  useMemo,
   DragEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
@@ -120,7 +121,8 @@ function WorkflowCanvasInner() {
     undo,
     redo
   } = useWorkflowStore();
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, getViewport } = useReactFlow();
+  const [currentZoom, setCurrentZoom] = useState(getViewport().zoom);
   const [isDragOver, setIsDragOver] = useState(false);
   const [dropType, setDropType] = useState<"image" | "workflow" | "node" | null>(null);
   const [connectionDrop, setConnectionDrop] = useState<ConnectionDropState | null>(null);
@@ -205,6 +207,47 @@ function WorkflowCanvasInner() {
       document.body.style.cursor = '';
     };
   }, [spaceBarPressed, setSpaceBarPressed]);
+
+  // Debounce function to limit update frequency
+  const debounce = (func: Function, delay: number) => {
+    let timeoutId: number;
+    return (...args: any[]) => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => func(...args), delay);
+    };
+  };
+  
+  // Create a timeout reference for debouncing
+  const zoomTimeoutRef = useRef<number | null>(null);
+  
+  // Track zoom changes with immediate CSS variable update
+  const onViewportChange = useCallback((event: any) => {
+    const newZoom = event.zoom || getViewport().zoom;
+    
+    // Update CSS variable immediately during zoom
+    document.documentElement.style.setProperty('--zoom-level', newZoom.toString());
+    
+    // Clear any pending timeout
+    if (zoomTimeoutRef.current !== null) {
+      clearTimeout(zoomTimeoutRef.current);
+    }
+    
+    // Update state after a short delay to stabilize
+    zoomTimeoutRef.current = window.setTimeout(() => {
+      if (Math.abs(newZoom - currentZoom) > 0.01) {
+        setCurrentZoom(newZoom);
+      }
+    }, 50);
+  }, [getViewport, currentZoom]);
+  
+  // Set initial zoom
+  useEffect(() => {
+    const initialZoom = getViewport().zoom;
+    setCurrentZoom(initialZoom);
+    document.documentElement.style.setProperty('--zoom-level', initialZoom.toString());
+  }, [getViewport]);
+
+
   
   const handlePaneContextMenu = useCallback((event: ReactMouseEvent) => {
     event.preventDefault();
@@ -1007,6 +1050,8 @@ function WorkflowCanvasInner() {
           animated: false,
         }}
         onPaneContextMenu={handlePaneContextMenu}
+        onMove={onViewportChange}
+        onPaneClick={() => {}} // Ensure onMove events fire properly
       >
         <Background color="#404040" gap={20} size={1} />
         <Controls className="bg-neutral-800 border border-neutral-700 rounded-lg shadow-lg [&>button]:bg-neutral-800 [&>button]:border-neutral-700 [&>button]:fill-neutral-300 [&>button:hover]:bg-neutral-700 [&>button:hover]:fill-neutral-100" />

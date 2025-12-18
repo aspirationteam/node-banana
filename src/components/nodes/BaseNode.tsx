@@ -98,11 +98,7 @@ export function BaseNode({
       />
       <div
         className={`
-          bg-neutral-800 rounded-md h-full w-full
-          ${isCurrentlyExecuting || isExecuting ? "outline outline-2 outline-blue-500" : ""}
-          ${hasError ? "outline outline-2 outline-red-500" : ""}
-          ${selected ? "outline outline-2 outline-blue-400" : ""}
-          ${isHovered && !selected && !spaceBarPressed ? "outline outline-1 outline-neutral-400" : ""}
+          bg-neutral-800 rounded-md h-full w-full relative overflow-visible
           ${className}
         `}
         style={{ 
@@ -113,6 +109,21 @@ export function BaseNode({
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
       >
+        {/* Fixed-width border using CSS calc with zoom variable - only render when needed */}
+        {(isCurrentlyExecuting || isExecuting || hasError || selected || (isHovered && !selected && !spaceBarPressed)) && (
+          <div 
+            className="fixed-width-border absolute inset-0 pointer-events-none rounded-md"
+            style={{
+              // Use CSS variables for dynamic calculation
+              '--border-width': isCurrentlyExecuting || isExecuting || hasError || selected ? '2' : '1',
+              '--border-color': 
+                isCurrentlyExecuting || isExecuting ? 'rgb(59 130 246)' :
+                hasError ? 'rgb(239 68 68)' :
+                'rgb(96 165 250)',
+              zIndex: 10,
+            } as React.CSSProperties}
+          />
+        )}
         <div className="px-3 pt-2 pb-1">
           <span className="text-xs font-semibold uppercase tracking-wide text-neutral-400">{title}</span>
         </div>

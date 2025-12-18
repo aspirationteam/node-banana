@@ -199,3 +199,10 @@ body {
 .animate-fan-exit {
   animation: fanExit 0.15s ease-in forwards;
 }
+
+/* Fixed-width border using CSS variables and calc */
+.fixed-width-border {
+  box-shadow: 0 0 0 calc(var(--border-width) / var(--zoom-level, 1) * 1px) var(--border-color);
+}
+
+
