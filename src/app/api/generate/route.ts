@@ -126,21 +126,53 @@ export async function POST(request: NextRequest) {
       console.log(`[API:${requestId}] Tools:`, JSON.stringify(tools, null, 2));
     }
 
-    // Make request to Gemini
+    // Make request to Gemini with retry logic for network errors
     console.log(`[API:${requestId}] Calling Gemini API...`);
     const geminiStartTime = Date.now();
-
-    const response = await ai.models.generateContent({
-      model: MODEL_MAP[model],
-      contents: [
-        {
-          role: "user",
-          parts: requestParts,
-        },
-      ],
-      config,
-      ...(tools.length > 0 && { tools }),
-    });
+    
+    let response;
+    let retryCount = 0;
+    const maxRetries = 3;
+    
+    while (retryCount <= maxRetries) {
+      try {
+        if (retryCount > 0) {
+          console.log(`[API:${requestId}] Retry attempt ${retryCount}/${maxRetries}...`);
+          // Exponential backoff: wait 1s, 2s, 4s between retries
+          const waitTime = Math.pow(2, retryCount - 1) * 1000;
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+        
+        response = await ai.models.generateContent({
+          model: MODEL_MAP[model],
+          contents: [
+            {
+              role: "user",
+              parts: requestParts,
+            },
+          ],
+          config,
+          ...(tools.length > 0 && { tools }),
+        });
+        
+        // If we got here, the request succeeded
+        break;
+      } catch (fetchError) {
+        retryCount++;
+        console.error(`[API:${requestId}] Attempt ${retryCount} failed:`, fetchError.message);
+        
+        // Check if this is a network/fetch error that might be retriable
+        const isNetworkError = fetchError.message.includes('fetch failed') || 
+                              fetchError.message.includes('ECONNRESET') || 
+                              fetchError.message.includes('ETIMEDOUT') || 
+                              fetchError.message.includes('ENOTFOUND');
+        
+        if (retryCount > maxRetries || !isNetworkError) {
+          // If we've exhausted retries or this isn't a network error, re-throw
+          throw fetchError;
+        }
+      }
+    }
 
     const geminiDuration = Date.now() - geminiStartTime;
     console.log(`[API:${requestId}] Gemini API call completed in ${geminiDuration}ms`);
@@ -300,13 +332,25 @@ export async function POST(request: NextRequest) {
 
     console.error(`[API:${requestId}] Compiled error details:`, errorDetails);
 
+    // Handle specific network errors with a user-friendly message
+    if (errorMessage.includes('fetch failed')) {
+      console.error(`[API:${requestId}] Network error detected`);
+      return NextResponse.json<GenerateResponse>(
+        {
+          success: false,
+          error: "网络连接失败，无法连接到 Google API。请检查网络连接或稍后重试。",
+        },
+        { status: 503 }
+      );
+    }
+
     // Handle rate limiting
     if (errorMessage.includes("429")) {
       console.error(`[API:${requestId}] Rate limit error detected`);
       return NextResponse.json<GenerateResponse>(
         {
           success: false,
-          error: "Rate limit reached. Please wait and try again.",
+          error: "API 调用频率限制，请稍后重试。",
         },
         { status: 429 }
       );
