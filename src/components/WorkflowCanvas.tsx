@@ -112,7 +112,52 @@ function WorkflowCanvasInner() {
   const [connectionDrop, setConnectionDrop] = useState<ConnectionDropState | null>(null);
   const [isSplitting, setIsSplitting] = useState(false);
   const [gridSelector, setGridSelector] = useState<{ position: { x: number; y: number }; sourceNodeId: string; flowPosition: { x: number; y: number } } | null>(null);
+  const [spaceBarPressed, setSpaceBarPressed] = useState(false);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  
+  // Handle space bar press for canvas panning
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.code === 'Space' && !event.repeat) {
+        event.preventDefault();
+        setSpaceBarPressed(true);
+      }
+    };
+    
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.code === 'Space') {
+        event.preventDefault();
+        setSpaceBarPressed(false);
+      }
+    };
+    
+    // Add mouse down/up handlers to update cursor during dragging
+    const handleMouseDown = () => {
+      if (spaceBarPressed) {
+        document.body.style.cursor = 'grabbing';
+      }
+    };
+    
+    const handleMouseUp = () => {
+      if (spaceBarPressed) {
+        document.body.style.cursor = 'grab';
+      }
+    };
+    
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keyup', handleKeyUp);
+    document.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('mouseup', handleMouseUp);
+    
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keyup', handleKeyUp);
+      document.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+    };
+  }, [spaceBarPressed]);
+  
   const handlePaneContextMenu = useCallback((event: ReactMouseEvent) => {
     event.preventDefault();
   }, []);
@@ -846,6 +891,7 @@ function WorkflowCanvasInner() {
     <div
       ref={reactFlowWrapper}
       className={`flex-1 bg-canvas-bg relative ${isDragOver ? "ring-2 ring-inset ring-blue-500" : ""}`}
+      style={{ cursor: spaceBarPressed ? 'grab' : 'default' }}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -861,6 +907,18 @@ function WorkflowCanvasInner() {
                 ? "Drop to create node"
                 : "Drop image to create node"}
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Space bar pressed indicator */}
+      {spaceBarPressed && (
+        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 pointer-events-none">
+          <div className="bg-neutral-800/90 border border-neutral-600 rounded-lg px-4 py-2 shadow-xl flex items-center gap-2">
+            <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+            <p className="text-neutral-200 text-sm font-medium">按住空格键拖动画布</p>
           </div>
         </div>
       )}
@@ -890,8 +948,10 @@ function WorkflowCanvasInner() {
         multiSelectionKeyCode="Shift"
         selectionOnDrag
         selectionMode={SelectionMode.Partial}
-        panOnDrag={[2]}
-        selectNodesOnDrag={false}
+        panOnDrag={[1, 2]}
+        panActivationKeyCode="Space"
+        selectNodesOnDrag={!spaceBarPressed}
+        nodesDraggable={!spaceBarPressed}
         nodeDragThreshold={5}
         className="bg-neutral-900"
         defaultEdgeOptions={{
